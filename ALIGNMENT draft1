@@ -439,10 +439,45 @@ for i in tricoord:
         iii=i.index(s[k][1])
         i[iii] = v[k]
 final=[]
+
 for i in tricoord:
   i= list(set(i))
   final.append(i)
 print(final)
+#
+ for i in tricoord:
+  for j in i:
+    for k in range(len(s)):
+      if s[k][0] == j:
+        ii=i.index(s[k][0])
+        i[ii] = v[k]
+      if s[k][1]==j:
+        iii=i.index(s[k][1])
+        i[iii] = v[k]
+final=[]
+for i in range(len(tricoord)):
+  tricoord[i]= list(set(tricoord[i]))
+ 
+print(tricoord)
   
-
+print(len(tricoord))
+     
+#
     
+angle1=[]
+angle2=[]
+angle3=[]
+
+for i in tricoord:
+  dely1=i[1][1]-i[0][1]
+  delx1=i[1][0]-i[0][0]
+  dely2=i[2][1]-i[1][1]
+  delx2=i[2][0]-i[1][0]
+  dely3=i[2][1]-i[0][1]
+  delx3=i[2][0]-i[0][0]
+  angle1.append(math.degrees(math.atan2(dely1,delx1)))
+  angle2.append(math.degrees(math.atan2(dely2,delx2)))
+  angle3.append(math.degrees(math.atan2(dely3,delx3)))
+print(angle1)
+print(angle2)
+print(angle3)
