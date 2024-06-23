@@ -1,0 +1,448 @@
+#1
+!nvidia-smi
+#2
+import os
+HOME = os.getcwd()
+print("HOME:", HOME)
+#3
+!pip install -q 'git+https://github.com/facebookresearch/segment-anything.git'
+#4
+!pip install -q jupyter_bbox_widget roboflow dataclasses-json supervision
+#5
+!mkdir -p {HOME}/weights
+!wget -q https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth -P {HOME}/weights
+#6
+import os
+
+CHECKPOINT_PATH = os.path.join(HOME, "weights", "sam_vit_h_4b8939.pth")
+print(CHECKPOINT_PATH, "; exist:", os.path.isfile(CHECKPOINT_PATH))
+#7
+!mkdir -p {HOME}/data
+
+!wget -q https://media.roboflow.com/notebooks/examples/dog.jpeg -P {HOME}/data
+!wget -q https://media.roboflow.com/notebooks/examples/dog-2.jpeg -P {HOME}/data
+!wget -q https://media.roboflow.com/notebooks/examples/dog-3.jpeg -P {HOME}/data
+!wget -q https://media.roboflow.com/notebooks/examples/dog-4.jpeg -P {HOME}/data
+#8
+import torch
+
+DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+MODEL_TYPE = "vit_h"
+#
+from segment_anything import sam_model_registry, SamAutomaticMaskGenerator, SamPredictor
+
+sam = sam_model_registry[MODEL_TYPE](checkpoint=CHECKPOINT_PATH).to(device=DEVICE)
+#
+mask_predictor = SamPredictor(sam)
+#
+import os
+
+IMAGE_NAME = "/content/2tri.jpg"
+IMAGE_PATH = os.path.join(HOME, "data", IMAGE_NAME)
+print(type(IMAGE_PATH))
+#
+# helper function that loads an image before adding it to the widget
+
+import base64
+
+def encode_image(filepath):
+    with open(filepath, 'rb') as f:
+        image_bytes = f.read()
+    encoded = str(base64.b64encode(image_bytes), 'utf-8')
+    return "data:image/jpg;base64,"+encoded
+#
+mask_generator = SamAutomaticMaskGenerator(sam, points_per_batch=16)
+#
+#new
+import cv2
+import supervision as sv
+
+image_bgr = cv2.imread(IMAGE_PATH)
+image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+
+sam_result = mask_generator.generate(image_rgb)
+#
+bb= []#maskk contains bbox coordinates of all triangles where x, y are the coordinates of the top left coordinate and in the inverted cartesian sys
+values_list=[]#values_list contains the list of all values of width of triabgles
+values_list1=[]#height
+for i in range(len(sam_result)):
+  bb.append(sam_result[i]['bbox'])
+  values_list.append(bb[i][2])
+  values_list1.append(bb[i][3])
+
+
+#
+
+def left_edge(xywh):
+    x1, y1, w, h = xywh
+    height = h + 1
+    left = []
+
+    for i in range(height):
+        left.append((x1, y1 + i))
+
+    return left
+
+
+def top_edge(xywh):
+    x1, y1, w, h = xywh
+    width = w + 1
+    top = []
+
+    for i in range(width):
+        top.append((x1 + i, y1))
+
+    return top
+
+def right_edge(xywh):
+    x1, y1, w, h = xywh
+    height = h+1
+    right = []
+
+    for i in range(height):
+        right.append((x1+w, y1 + i))
+
+    return right
+
+
+def bottom_edge(xywh):
+    x1, y1, w, h = xywh
+    width = h+1
+    bottom = []
+
+    for i in range(width):
+        bottom.append((x1+i, y1 + h))
+
+    return bottom
+#
+import numpy as np
+#0
+
+values_list = list(set(values_list))
+values_list1 = list(set(values_list1))
+values_list = np.sort(values_list)
+values_list1 = np.sort(values_list1)
+
+
+# Calculate Q1 (25th percentile) and Q3 (75th percentile)
+Q1 = np.percentile(values_list, 25)
+Q3 = np.percentile(values_list, 75)
+
+# Calculate the IQR
+IQR = Q3 - Q1
+
+# Define the bounds for outliers
+
+# Initialize two lists to hold the separated values
+large_values = []
+other_values = []
+
+# Iterate through each value in the list
+for value in values_list:
+    if value < Q1 or value > Q3:
+        large_values.append(value)
+    else:
+        other_values.append(value)
+#
+
+print('no. of triangles are triangles:'+str(len(other_values)))
+#1
+
+
+
+# Calculate Q1 (25th percentile) and Q3 (75th percentile)
+Q1 = np.percentile(values_list1, 25)
+Q3 = np.percentile(values_list1, 75)
+
+# Calculate the IQR
+IQR = Q3 - Q1
+
+# Define the bounds for outliers
+
+# Initialize two lists to hold the separated values
+large_values1 = []
+other_values1 = []
+
+# Iterate through each value in the list
+for value in values_list1:
+    if value < Q1 or value > Q3:
+        large_values1.append(value)
+    else:
+        other_values1.append(value)
+
+# Print the results
+
+
+print('no. of triangles are triangles:'+str(len(other_values1)))
+print(other_values)#THEMID VALUES OF WIDTH
+print(other_values1)#TH HEIGHT
+#18
+index=[]
+index1=[]
+findex=[]
+for i in range(len(values_list)):
+  if values_list[i] in other_values:
+    index.append(i)
+for i in range(len(values_list1)):
+  if values_list1[i] in other_values1:
+    index1.append(i)
+print(index)
+print(index1)
+
+for i in index:
+  if i in index1:
+    findex.append(i)
+print(findex)#THE FINAL INDEICES OF THE BOUNDING BOX WHICH SATISFY THE THRESHOLD VALUES
+#19
+
+print(len(sam_result))
+maskk = []
+for i in findex:
+    maskk.append(sam_result[i]["segmentation"])
+for i in range(len(maskk)):
+    temp = image_rgb.copy()
+    temp[maskk[i]] = 0.0
+
+    sv.plot_images_grid(
+    images=[image_bgr, temp],
+    grid_size=(len(sam_result), 2),
+    titles=['source image', 'segmented image']
+    )
+#20
+from PIL import Image
+
+# Path to your image file
+image_path = '/content/2tri.jpg'
+
+with Image.open(image_path) as img:
+    # Get the resolution (width and height)
+    W, H = img.size
+#
+# Print the resolution
+print(f"The resolution of the image is {W}x{H} pixels.")
+
+#21
+#tricoords
+mc=[]
+cc=[]
+ncc=[]
+ccle=[]
+xywh=[]
+for i in findex:
+  xywh.append(bb[i])
+for i in range(len(maskk)):
+  mc.append(np.nonzero(maskk[i]))
+  cc.append(list(zip(mc[i][1],mc[i][0])))
+  it=[(x,H-y) for (x,y) in cc[i]]
+  ncc.append(it)
+print(cc[1][7])
+le=[]
+print(ncc[1][7])
+for i in range(len(xywh)):
+  le.append(left_edge(xywh[i]))
+  itc=[(x,H-y) for (x,y) in le[i]]
+  ccle.append(itc)
+print(len(ncc))
+print(len(ccle))
+#22
+
+re=[]
+ccre=[]
+for i in range(len(xywh)):
+  re.append(right_edge(xywh[i]))
+  itc=[(x,H-y) for (x,y) in re[i]]
+  ccre.append(itc)
+print(len(ncc))
+print(len(ccre))
+#23
+
+te=[]
+ccte=[]
+for i in range(len(xywh)):
+  te.append(top_edge(xywh[i]))
+  itc=[(x,H-y) for (x,y) in te[i]]
+  ccte.append(itc)
+print(len(ncc))
+print(len(ccte))
+#24
+
+be=[]
+ccbe=[]
+for i in range(len(xywh)):
+  be.append(bottom_edge(xywh[i]))
+  itc=[(x,H-y) for (x,y) in be[i]]
+  ccbe.append(itc)
+print(len(ncc))
+print(len(ccbe))
+#25
+lol=[]
+xv=[]
+yv=[]
+verticesle= [[] for _ in range(len(ncc))]
+for i in range(len(ncc)):#3
+  if i<len(ncc):
+    for j in ncc[i]:
+      if j in ccle[i]:
+        verticesle[i].append(j)
+print(verticesle)
+#
+
+verticesre=[[] for _ in range(len(ncc))]
+for i in range(len(ncc)):#3
+  if i<len(ncc):
+    for j in ncc[i]:
+      if j in ccre[i]:
+        verticesre[i].append(j)
+print(verticesre)
+verticeste=[[] for _ in range(len(ncc))]
+for i in range(len(ncc)):#3
+  if i<len(ncc):
+    for j in ncc[i]:
+      if j in ccte[i]:
+        verticeste[i].append(j)
+print(verticeste)
+verticesbe=[[] for _ in range(len(ncc))]
+for i in range(len(ncc)):#3
+  if i<len(ncc):
+    for j in ncc[i]:
+      if j in ccbe[i]:
+        verticesbe[i].append(j)
+print(verticesbe)
+
+#
+tricoord= [[] for _ in range(len(ncc))]
+for i in range(len(ncc)):
+  if len(verticesle[i]) % 2 == 0:
+    ind = (len(verticesle[i]))/2
+    ind = int(ind)-1
+  else:
+    ind = (len(verticesle[i]) - 1) / 2
+    ind=int(ind)
+  if verticesle[i]!=[]:
+    tricoord[i].append(verticesle[i][ind])
+  if len(verticeste[i]) % 2 == 0:
+    ind = (len(verticeste[i]))/2
+    ind = int(ind)-1
+  else:
+    ind = (len(verticeste[i]) - 1) / 2
+    ind=int(ind)
+  if verticeste[i]!=[]:
+    tricoord[i].append(verticeste[i][ind])
+
+  if len(verticesre[i]) % 2 == 0:
+    ind = (len(verticesre[i]))/2
+    ind = int(ind)-1
+  else:
+    ind = (len(verticesre[i]) - 1) / 2
+    ind=int(ind)
+  if verticesre[i]!=[]:
+    tricoord[i].append(verticesre[i][ind])
+
+  if len(verticesbe[i]) % 2 == 0:
+    ind = (len(verticesbe[i]))/2
+    ind = int(ind)-1
+  else:
+    ind = (len(verticesbe[i]) - 1) / 2
+    ind=int(ind)
+  if verticesbe[i]!=[]:
+    tricoord[i].append(verticesbe[i][ind])
+print(tricoord)
+#
+import math
+l= [{} for _ in range(len(ncc))]
+
+for i in range(len(ncc)):
+  if len(tricoord[i])<3:
+    print('invalid')
+
+
+  if len(tricoord[i]) == 4:
+    l[i][tricoord[i][1], tricoord[i][0]] = math.dist(list(tricoord[i][1]), list(tricoord[i][0]))
+    l[i][tricoord[i][2], tricoord[i][1]] = math.dist(list(tricoord[i][2]), list(tricoord[i][1]))
+    l[i][tricoord[i][3], tricoord[i][2]] = math.dist(list(tricoord[i][3]), list(tricoord[i][2]))
+    l[i][tricoord[i][3], tricoord[i][0]] = math.dist(list(tricoord[i][3]), list(tricoord[i][0]))
+
+m= [{} for _ in range(len(ncc))]
+for i in range(len(ncc)):
+    if len(tricoord[i]) == 4:
+        m[i][tricoord[i][1], tricoord[i][0]] = ((tricoord[i][1][0]+tricoord[i][0][0])/2,(tricoord[i][1][1]+tricoord[i][0][1])/2)
+        m[i][tricoord[i][2], tricoord[i][1]] = ((tricoord[i][2][0]+tricoord[i][1][0])/2,(tricoord[i][2][1]+tricoord[i][1][1])/2)
+        m[i][tricoord[i][3], tricoord[i][2]] = ((tricoord[i][3][0]+tricoord[i][3][0])/2,(tricoord[i][3][1]+tricoord[i][2][1])/2)
+        m[i][tricoord[i][3], tricoord[i][0]] = ((tricoord[i][3][0]+tricoord[i][0][0])/2,(tricoord[i][3][1]+tricoord[i][0][1])/2)
+dist = [[] for _ in range(len(ncc))]
+l1=[]
+print(l)
+print(m)
+#
+
+import numpy as np
+count=0
+for i in range(len(ncc)):
+    dist[i].append(list(l[i].values()))
+print(dist)
+#
+large_values = [[] for _ in range(len(l))]
+other_values = [[] for _ in range(len(l))]
+
+values_list=[]
+for i in range(len(l)):
+        # Calculate Q1 (25th percentile) and Q3 (75th percentile)
+        Q1 = np.percentile(dist[i][0], 25)
+                    # Iterate through each value in the list
+        for value in dist[i][0]:
+            if value < Q1:  # or value > Q3:
+                large_values[i].append(value)
+            else:
+                other_values[i].append(value)
+        # Q3 = np.percentile(values_list, 95)
+
+
+
+        # Define the bounds for outliers
+
+        # Initialize two lists to hold the separated values
+
+
+
+
+                    # Print the results
+print(large_values)
+#
+def find_key_by_value(dictionary, target_value):
+    for key, value in dictionary.items():
+        if value == target_value:
+            return key
+def find_val_by_key(dictionary, k):
+    for key, value in dictionary.items():
+        if key == k:
+            return value
+s=[]
+v=[]
+for i in range(len(l)):
+  s.append(find_key_by_value(l[i], large_values[i][0]))
+  v.append(find_val_by_key(m[i],s[i]))
+
+print(tricoord)
+
+print(s)
+print(v)
+
+
+#
+for i in tricoord:
+  for j in i:
+    for k in range(len(s)):
+      if s[k][0] == j:
+        ii=i.index(s[k][0])
+        i[ii] = v[k]
+      if s[k][1]==j:
+        iii=i.index(s[k][1])
+        i[iii] = v[k]
+final=[]
+for i in tricoord:
+  i= list(set(i))
+  final.append(i)
+print(final)
+  
+
+    
